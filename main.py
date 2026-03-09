@@ -52,7 +52,7 @@ def parse_reminder_with_gemini(text):
         "Eslatmadan vaqt va matnni ajrat. Qoidalar:\n"
         "1. Faqat vaqt yozilgan bo'lsa - bugun, o'tib ketgan bo'lsa ertaga\n"
         "2. Sana ham yozilgan bo'lsa - o'sha sanani ishlat\n"
-        "3. Sana formati: kun.oy (masalan 05.03)\n"
+        "3. Sana formati: kun.oy (masalan 05.03)\n" 
         "4. 1 yildan ko'p bo'lsa - qabul qilma\n\n"
         "Faqat JSON qaytar:\n"
         '{"success": true, "datetime": "DD.MM.YYYY HH:MM", "message": "eslatma matni", "error": "xato sababi"}'
