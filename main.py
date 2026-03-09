@@ -2,7 +2,6 @@ import logging
 import asyncio
 import json
 import os
-import re
 from datetime import datetime, timedelta
 import pytz
 
@@ -13,8 +12,8 @@ from telegram.ext import (
 )
 import google.generativeai as genai
 
-TELEGRAM_TOKEN = "BU_YERGA_TELEGRAM_TOKEN"
-GEMINI_API_KEY = "BU_YERGA_GEMINI_API_KEY"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TIMEZONE = "Asia/Tashkent"
 
 logging.basicConfig(level=logging.INFO)
@@ -47,29 +46,27 @@ def save_user_reminders(user_id, reminders):
 
 def parse_reminder_with_gemini(text):
     now = datetime.now(tz)
-    prompt = f"""
-Foydalanuvchi eslatma yozdi: "{text}"
-Hozirgi vaqt: {now.strftime("%d.%m.%Y %H:%M")} (O'zbekiston vaqti)
-
-Eslatmadan vaqt va matnni ajrat. Qoidalar:
-1. Agar faqat vaqt yozilgan bo'lsa - bugun o'sha vaqt, o'tib ketgan bo'lsa ertaga
-2. Agar sana ham yozilgan bo'lsa - o'sha sanani ishlat
-3. Sana formati: kun.oy (masalan 05.03)
-4. 1 yildan ko'p bo'lsa - qabul qilma
-
-Faqat JSON qaytар:
-{{
-  "success": true/false,
-  "datetime": "DD.MM.YYYY HH:MM",
-  "message": "eslatma matni",
-  "error": "xato sababi"
-}}
-"""
+    prompt = (
+        f'Foydalanuvchi eslatma yozdi: "{text}"\n'
+        f'Hozirgi vaqt: {now.strftime("%d.%m.%Y %H:%M")} (O\'zbekiston vaqti)\n\n'
+        "Eslatmadan vaqt va matnni ajrat. Qoidalar:\n"
+        "1. Faqat vaqt yozilgan bo'lsa - bugun, o'tib ketgan bo'lsa ertaga\n"
+        "2. Sana ham yozilgan bo'lsa - o'sha sanani ishlat\n"
+        "3. Sana formati: kun.oy (masalan 05.03)\n"
+        "4. 1 yildan ko'p bo'lsa - qabul qilma\n\n"
+        "Faqat JSON qaytar:\n"
+        '{"success": true, "datetime": "DD.MM.YYYY HH:MM", "message": "eslatma matni", "error": "xato sababi"}'
+    )
     try:
         response = model.generate_content(prompt)
         text_response = response.text.strip()
-        text_response = re.sub(r'
-json|```', '', text_response).strip()
+        if text_response.startswith("
+"):
+            text_response = text_response.split("\n", 1)[1]
+        if text_response.endswith("
+            text_response = text_response.rsplit("
+", 1)[0]
+        text_response = text_response.strip()
         return json.loads(text_response)
     except Exception as e:
         logger.error(f"Gemini xatosi: {e}")
@@ -83,10 +80,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Endi bu muammo yo'q! Men sizning <b>shaxsiy yordamchingiz</b> — har qanday ishni o'z vaqtida eslataman! ⏰\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🚀 <b>Ishlatish juda oson:</b>\n\n"
-        "<b>• Faqat vaqt:</b>\n"
+        "<b>Faqat vaqt:</b>\n"
         "<code>13:00 suv ichaman</code>\n"
         "<code>08:00 dori ichish</code>\n\n"
-        "<b>• Sana + vaqt:</b>\n"
+        "<b>Sana + vaqt:</b>\n"
         "<code>05.03 14:30 shifokorga borish</code>\n"
         "<code>25.12 10:00 bayram tabrigi</code>\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -110,7 +107,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>09:30 nonushta</code>\n"
         "• <code>05.03 14:30 shifokor</code>\n"
         "• <code>25.12 10:00 bayram tabrigi</code>\n\n"
-"<b>Qoidalar:</b>\n"
+        "<b>Qoidalar:</b>\n"
         "✅ Vaqt o'tib ketgan bo'lsa — ertaga eslatadi\n"
         "✅ Sana yozilgan bo'lsa — o'sha kuni eslatadi\n"
         "❌ 1 yildan ko'p — qabul qilinmaydi\n\n"
@@ -143,8 +140,14 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for i, r in enumerate(active, 1):
         text += f"{i}. ⏰ <b>{r['datetime']}</b>\n   📝 {r['message']}\n\n"
-        keyboard.append([InlineKeyboardButton(f"🗑 {i}-eslatmani o'chirish", callback_data=f"delete_{r['id']}")])
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard.append([InlineKeyboardButton(
+            f"🗑 {i}-eslatmani o'chirish",
+            callback_data=f"delete_{r['id']}"
+        )])
+    await update.message.reply_text(
+        text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -153,7 +156,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = parse_reminder_with_gemini(text)
     if not result.get("success"):
         await update.message.reply_text(
-            "❌ Tushunmadim!\n\Namuna:\n• <code>13:00 suv ichaman</code>\n• <code>05.03 14:30 shifokor</code>",
+            "❌ Tushunmadim!\n\nNamuna:\n"
+            "• <code>13:00 suv ichaman</code>\n"
+            "• <code>05.03 14:30 shifokor</code>",
             parse_mode="HTML"
         )
         return
@@ -170,7 +175,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     reminder_id = str(int(now.timestamp() * 1000))
     reminders = get_user_reminders(user_id)
-    reminders.append({"id": reminder_id, "datetime": reminder_dt_str, "message": reminder_message, "user_id": user_id})
+    reminders.append({
+        "id": reminder_id,
+        "datetime": reminder_dt_str,
+        "message": reminder_message,
+        "user_id": user_id
+    })
     save_user_reminders(user_id, reminders)
     delay = (reminder_dt - now).total_seconds()
     context.application.job_queue.run_once(
@@ -179,7 +189,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name=reminder_id
     )
     await update.message.reply_text(
-        f"✅ <b>Eslatma qo'shildi!</b>\n\n⏰ Vaqt: <b>{reminder_dt_str}</b>\n📝 Eslatma: {reminder_message}",
+        f"✅ <b>Eslatma qo'shildi!</b>\n\n"
+        f"⏰ Vaqt: <b>{reminder_dt_str}</b>\n"
+        f"📝 Eslatma: {reminder_message}",
         parse_mode="HTML"
     )
 
@@ -192,13 +204,12 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     )
     reminders = get_user_reminders(data["user_id"])
     save_user_reminders(data["user_id"], [r for r in reminders if r["id"] != data["reminder_id"]])
-
-async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     reminder_id = query.data.replace("delete_", "")
-reminders = get_user_reminders(user_id)
+    reminders = get_user_reminders(user_id)
     new_reminders = [r for r in reminders if r["id"] != reminder_id]
     if len(new_reminders) < len(reminders):
         save_user_reminders(user_id, new_reminders)
@@ -216,7 +227,8 @@ async def restore_reminders(application):
                 dt = tz.localize(datetime.strptime(r["datetime"], "%d.%m.%Y %H:%M"))
                 if dt > now:
                     application.job_queue.run_once(
-                        send_reminder, when=(dt - now).total_seconds(),
+                        send_reminder,
+                        when=(dt - now).total_seconds(),
                         data={"user_id": int(user_id), "message": r["message"], "reminder_id": r["id"]},
                         name=r["id"]
                     )
@@ -230,10 +242,11 @@ def main():
     app.add_handler(CommandHandler("list", list_reminders))
     app.add_handler(CallbackQueryHandler(handle_delete, pattern="^delete_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.job_queue.run_once(lambda ctx: asyncio.create_task(restore_reminders(app)), when=1)
+    app.job_queue.run_once(
+        lambda ctx: asyncio.create_task(restore_reminders(app)), when=1
+    )
     logger.info("Bot ishga tushdi!")
     app.run_polling()
 
 if name == "main":
-    main()
-`
+    main() 
