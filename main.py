@@ -60,12 +60,10 @@ def parse_reminder_with_gemini(text):
     try:
         response = model.generate_content(prompt)
         text_response = response.text.strip()
-        if text_response.startswith("
-"):
+        if text_response.startswith(""):
             text_response = text_response.split("\n", 1)[1]
         if text_response.endswith("
-            text_response = text_response.rsplit("
-", 1)[0]
+            text_response = text_response.rsplit("", 1)[0]
         text_response = text_response.strip()
         return json.loads(text_response)
     except Exception as e:
